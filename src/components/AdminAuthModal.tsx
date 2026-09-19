@@ -24,6 +24,8 @@ import {
   getStoredAdminSession,
   setStoredAdminSession,
   SUPABASE_SQL_SCHEMA,
+  getCustomAdminCredentials,
+  setCustomAdminCredentials,
 } from '../lib/supabase';
 
 interface Props {
@@ -41,13 +43,20 @@ export const AdminAuthModal: React.FC<Props> = ({
   onSessionChange,
   onRefreshData,
 }) => {
-  const [activeTab, setActiveTab] = useState<'auth' | 'database' | 'render'>('auth');
+  const [activeTab, setActiveTab] = useState<'auth' | 'credentials' | 'database' | 'render'>('auth');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Custom Admin Credentials State
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [credsLoading, setCredsLoading] = useState(false);
 
   // Supabase Config State
   const [supabaseUrl, setSupabaseUrl] = useState('');
@@ -61,6 +70,10 @@ export const AdminAuthModal: React.FC<Props> = ({
       setSupabaseUrl(config.url);
       setSupabaseAnonKey(config.anonKey);
       setConfigSource(config.source);
+      const creds = getCustomAdminCredentials();
+      setNewUsername(creds.username || 'admin');
+      setNewPassword('');
+      setConfirmPassword('');
       setErrorMsg(null);
       setSuccessMsg(null);
     }
@@ -209,6 +222,68 @@ export const AdminAuthModal: React.FC<Props> = ({
     setTimeout(() => setIsCopied(false), 2500);
   };
 
+  const handleChangeCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    const userClean = newUsername.trim();
+    const passClean = newPassword.trim();
+    const confirmClean = confirmPassword.trim();
+
+    if (!userClean) {
+      setErrorMsg('لطفاً نام کاربری را وارد کنید.');
+      return;
+    }
+
+    if (!passClean) {
+      setErrorMsg('لطفاً رمز عبور جدید را وارد کنید.');
+      return;
+    }
+
+    if (passClean.length < 4) {
+      setErrorMsg('رمز عبور باید حداقل ۴ کاراکتر باشد.');
+      return;
+    }
+
+    if (passClean !== confirmClean) {
+      setErrorMsg('رمز عبور جدید و تکرار آن یکسان نیستند.');
+      return;
+    }
+
+    setCredsLoading(true);
+
+    try {
+      setCustomAdminCredentials(userClean, passClean);
+
+      // If logged in via Supabase Auth, attempt to update remote password too
+      const supabase = getSupabaseClient();
+      if (supabase && adminSession?.source === 'supabase') {
+        try {
+          await supabase.auth.updateUser({ password: passClean });
+        } catch (supaErr: any) {
+          console.warn('Supabase remote password update notice:', supaErr);
+        }
+      }
+
+      const updatedSession: AdminSession = {
+        isAdmin: true,
+        email: userClean,
+        source: adminSession?.source || 'local',
+      };
+      setStoredAdminSession(updatedSession);
+      onSessionChange(updatedSession);
+
+      setSuccessMsg('نام کاربری و رمز عبور با موفقیت به‌روزرسانی شد. از این پس برای ورود از این مشخصات استفاده کنید.');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'خطا در ثبت مشخصات جدید.');
+    } finally {
+      setCredsLoading(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]">
@@ -219,38 +294,63 @@ export const AdminAuthModal: React.FC<Props> = ({
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-sm">پنل مدیریت و دیتابیس Supabase</h3>
-              <p className="text-[11px] text-slate-400">کنترل دسترسی، اتصال دیتابیس ابری و استقرار در Render</p>
+              <h3 className="font-bold text-sm">پنل مدیریت و تنظیمات امنیتی</h3>
+              <p className="text-[11px] text-slate-400">کنترل دسترسی، تغییر نام کاربری/رمز، Supabase و Render</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+            className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-200 bg-slate-50 text-xs font-semibold">
+        <div className="flex border-b border-slate-200 bg-slate-50 text-xs font-semibold overflow-x-auto">
           <button
             type="button"
-            onClick={() => setActiveTab('auth')}
-            className={`flex-1 py-3 px-3 flex items-center justify-center gap-1.5 transition-colors ${
+            onClick={() => {
+              setActiveTab('auth');
+              setErrorMsg(null);
+              setSuccessMsg(null);
+            }}
+            className={`flex-1 min-w-[90px] py-3 px-2 flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
               activeTab === 'auth'
                 ? 'bg-white text-orange-600 border-b-2 border-orange-600 font-bold'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <Lock className="w-3.5 h-3.5" />
-            <span>ورود ادمین</span>
+            <span>وضعیت ورود</span>
           </button>
 
           <button
             type="button"
-            onClick={() => setActiveTab('database')}
-            className={`flex-1 py-3 px-3 flex items-center justify-center gap-1.5 transition-colors ${
+            onClick={() => {
+              setActiveTab('credentials');
+              setErrorMsg(null);
+              setSuccessMsg(null);
+            }}
+            className={`flex-1 min-w-[125px] py-3 px-2 flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+              activeTab === 'credentials'
+                ? 'bg-white text-orange-600 border-b-2 border-orange-600 font-bold'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Key className="w-3.5 h-3.5" />
+            <span>تغییر نام و رمز</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('database');
+              setErrorMsg(null);
+              setSuccessMsg(null);
+            }}
+            className={`flex-1 min-w-[105px] py-3 px-2 flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
               activeTab === 'database'
                 ? 'bg-white text-orange-600 border-b-2 border-orange-600 font-bold'
                 : 'text-slate-600 hover:text-slate-900'
@@ -262,8 +362,12 @@ export const AdminAuthModal: React.FC<Props> = ({
 
           <button
             type="button"
-            onClick={() => setActiveTab('render')}
-            className={`flex-1 py-3 px-3 flex items-center justify-center gap-1.5 transition-colors ${
+            onClick={() => {
+              setActiveTab('render');
+              setErrorMsg(null);
+              setSuccessMsg(null);
+            }}
+            className={`flex-1 min-w-[95px] py-3 px-2 flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
               activeTab === 'render'
                 ? 'bg-white text-orange-600 border-b-2 border-orange-600 font-bold'
                 : 'text-slate-600 hover:text-slate-900'
@@ -309,14 +413,26 @@ export const AdminAuthModal: React.FC<Props> = ({
                       {adminSession.source === 'supabase' ? 'دیتابیس Supabase Auth' : 'رمز عبور پشتیبان ادمین'}
                     </p>
                   </div>
-                  <div className="pt-2">
+                  <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('credentials');
+                        setErrorMsg(null);
+                        setSuccessMsg(null);
+                      }}
+                      className="flex-1 py-2 px-3 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer text-xs"
+                    >
+                      <Key className="w-3.5 h-3.5 text-orange-400" />
+                      <span>تغییر نام کاربری و رمز</span>
+                    </button>
                     <button
                       type="button"
                       onClick={handleLogout}
-                      className="w-full py-2 px-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer"
+                      className="py-2 px-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer text-xs"
                     >
                       <LogOut className="w-3.5 h-3.5" />
-                      <span>خروج از حساب مدیر</span>
+                      <span>خروج</span>
                     </button>
                   </div>
                 </div>
@@ -352,14 +468,11 @@ export const AdminAuthModal: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                       >
                         {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
-                    <span className="text-[10px] text-slate-500">
-                      نکته: در صورت عدم ساخت کاربر در Supabase، رمز عبور پیش‌فرض <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">admin123</code> می‌باشد.
-                    </span>
                   </div>
 
                   <div className="pt-2 flex gap-2">
@@ -385,6 +498,82 @@ export const AdminAuthModal: React.FC<Props> = ({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* TAB 2: CHANGE CREDENTIALS */}
+          {activeTab === 'credentials' && (
+            <div className="space-y-4">
+              <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl text-orange-950 leading-relaxed text-[11px] space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-orange-800">
+                  <ShieldCheck className="w-4 h-4 text-orange-600" />
+                  <span>تنظیم نام کاربری و رمز عبور مدیر</span>
+                </div>
+                <p>
+                  در این بخش می‌توانید نام کاربری و کلمه عبور اختصاصی خود را تعیین کنید تا در دفعات بعدی با مشخصات دلخواه خود وارد شوید.
+                </p>
+              </div>
+
+              <form onSubmit={handleChangeCredentials} className="space-y-3">
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-700">نام کاربری مدیر (Username)</label>
+                  <input
+                    type="text"
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    placeholder="مثلاً: admin یا arman"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:border-orange-500 outline-hidden font-mono"
+                    dir="ltr"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-700">کلمه عبور جدید</label>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="حداقل ۴ کاراکتر"
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:border-orange-500 outline-hidden font-mono"
+                      dir="ltr"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-700">تکرار کلمه عبور جدید</label>
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="تکرار دقیق کلمه عبور جدید"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:border-orange-500 outline-hidden font-mono"
+                    dir="ltr"
+                    required
+                  />
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={credsLoading}
+                    className="w-full py-2.5 px-4 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    <span>{credsLoading ? 'در حال ذخیره...' : 'ذخیره نام کاربری و رمز جدید'}</span>
+                  </button>
+                </div>
+              </form>
             </div>
           )}
 

@@ -134,7 +134,42 @@ export const getSupabaseClient = (): SupabaseClient | null => {
   }
 };
 
-// Admin Session State
+// Admin Session & Credentials State
+const LOCAL_ADMIN_CREDENTIALS_KEY = 'price_list_custom_admin_creds_v1';
+
+export interface AdminCredentials {
+  username: string;
+  password: string;
+}
+
+export const getCustomAdminCredentials = (): AdminCredentials => {
+  try {
+    const raw = localStorage.getItem(LOCAL_ADMIN_CREDENTIALS_KEY);
+    if (!raw) return { username: 'admin', password: 'admin123' };
+    const parsed = JSON.parse(raw);
+    return {
+      username: (parsed.username || 'admin').trim(),
+      password: (parsed.password || 'admin123').trim(),
+    };
+  } catch {
+    return { username: 'admin', password: 'admin123' };
+  }
+};
+
+export const setCustomAdminCredentials = (username: string, password: string) => {
+  try {
+    localStorage.setItem(
+      LOCAL_ADMIN_CREDENTIALS_KEY,
+      JSON.stringify({
+        username: (username || 'admin').trim(),
+        password: (password || 'admin123').trim(),
+      })
+    );
+  } catch (err) {
+    console.error('Failed to save admin credentials:', err);
+  }
+};
+
 export interface AdminSession {
   isAdmin: boolean;
   email?: string;
@@ -258,6 +293,11 @@ export const savePriceListToSupabase = async (doc: PriceListDocument): Promise<v
 
   if (error) {
     console.error('Error saving to Supabase:', error);
+    if (error.message?.includes('public.price_lists') || error.message?.includes('schema cache')) {
+      throw new Error(
+        'جدول price_lists در دیتابیس Supabase هنوز ایجاد نشده است! لطفاً دستورات SQL را از تب «تنظیمات دیتابیس» کپی کرده و در SQL Editor سوبابیس Run کنید.'
+      );
+    }
     throw new Error(error.message);
   }
 };
@@ -272,6 +312,11 @@ export const deletePriceListFromSupabase = async (id: string): Promise<void> => 
   const { error } = await supabase.from('price_lists').delete().eq('id', id);
   if (error) {
     console.error('Error deleting from Supabase:', error);
+    if (error.message?.includes('public.price_lists') || error.message?.includes('schema cache')) {
+      throw new Error(
+        'جدول price_lists در دیتابیس Supabase هنوز ایجاد نشده است! لطفاً دستورات SQL را در سوبابیس اجرا کنید.'
+      );
+    }
     throw new Error(error.message);
   }
 };
