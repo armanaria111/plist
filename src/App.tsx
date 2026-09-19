@@ -15,9 +15,11 @@ import { SavedListsManager } from './components/SavedListsManager';
 import { ExportControls } from './components/ExportControls';
 import { BatchImportModal } from './components/BatchImportModal';
 import { AdminAuthModal } from './components/AdminAuthModal';
+import { AdminLockScreen } from './components/AdminLockScreen';
 import {
   AdminSession,
   getStoredAdminSession,
+  setStoredAdminSession,
   getSupabaseConfig,
   fetchPriceListsFromSupabase,
 } from './lib/supabase';
@@ -40,6 +42,7 @@ import {
   Lock,
   Cloud,
   Database,
+  LogOut,
 } from 'lucide-react';
 
 export default function App() {
@@ -222,6 +225,25 @@ export default function App() {
     }
   };
 
+  const handleLogout = () => {
+    if (window.confirm('آیا می‌خواهید از حساب مدیریت خارج شوید؟ برای حفظ امنیت، صفحه بلافاصله قفل خواهد شد.')) {
+      setStoredAdminSession(null);
+      setAdminSession(null);
+    }
+  };
+
+  // STRICT SECURITY GATEKEEPER:
+  // If not authenticated as admin, show ONLY the lock screen. No data or prices are rendered.
+  if (!adminSession || !adminSession.isAdmin) {
+    return (
+      <AdminLockScreen
+        onLoginSuccess={(session) => {
+          setAdminSession(session);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100/90 text-slate-900 flex flex-col font-sans selection:bg-orange-500 selection:text-white" dir="rtl">
       {/* Top Application Bar */}
@@ -237,41 +259,35 @@ export default function App() {
                   سازنده لیست قیمت
                 </h1>
                 <span className="text-[10px] font-bold bg-orange-50 text-orange-700 border border-orange-200/60 px-1.5 py-0.5 rounded-full hidden sm:inline-block">
-                  طرح فروشگاهی
+                  پنل مدیریت
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 hidden sm:block font-normal truncate">
-                تولید خروجی عکس لیست قیمت با لوگو، تلفن و آدرس با ذخیره‌سازی محلی
+                مدیریت اقلام، قیمت‌ها و خروجی تصویر با دیتابیس Supabase
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* Supabase & Admin Status Button */}
+            {/* Admin Authenticated Badge */}
+            <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200/80 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-bold">
+              <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 shrink-0" />
+              <span className="hidden md:inline font-mono truncate max-w-[120px]">{adminSession.email || 'مدیر'}</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+            </div>
+
+            {/* Supabase DB Settings Button */}
             <button
               type="button"
               onClick={() => setIsAdminModalOpen(true)}
-              className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 font-bold text-xs rounded-lg border transition-all hover:shadow-xs active:scale-98 cursor-pointer ${
-                adminSession?.isAdmin
-                  ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-              }`}
-              title={adminSession?.isAdmin ? 'مدیریت و اتصال دیتابیس (وارد شده)' : 'ورود مدیر و اتصال به Supabase'}
+              className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg border border-slate-200/80 transition-all hover:shadow-xs active:scale-98 cursor-pointer"
+              title="تنظیمات دیتابیس و تست اتصال"
             >
-              {adminSession?.isAdmin ? (
-                <>
-                  <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600" />
-                  <span className="hidden sm:inline">مدیر سیستم</span>
-                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                </>
-              ) : (
-                <>
-                  <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-orange-600" />
-                  <span className="hidden xs:inline">ورود مدیر</span>
-                </>
-              )}
+              <Database className="w-3.5 h-3.5 text-orange-600" />
+              <span className="hidden sm:inline">دیتابیس</span>
             </button>
 
+            {/* Excel Import */}
             <button
               type="button"
               onClick={() => setIsBatchImportOpen(true)}
@@ -281,6 +297,7 @@ export default function App() {
               <span className="hidden xs:inline">اکسل</span>
             </button>
 
+            {/* Saved lists */}
             <button
               type="button"
               onClick={() => {
@@ -294,6 +311,17 @@ export default function App() {
               <span className="bg-orange-600 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
                 {savedLists.length}
               </span>
+            </button>
+
+            {/* Safe Logout Button */}
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs rounded-lg border border-red-200/80 transition-all hover:shadow-xs active:scale-98 cursor-pointer"
+              title="خروج از حساب مدیریت و قفل امنیتی فوری صفحه"
+            >
+              <LogOut className="w-3.5 h-3.5 text-red-600" />
+              <span className="hidden xs:inline">خروج</span>
             </button>
           </div>
         </div>

@@ -13,9 +13,54 @@ export interface SupabaseConfig {
   source: 'env' | 'storage' | 'none';
 }
 
+/**
+ * Sanitizes Supabase URL to ensure it is strictly the root origin (e.g. https://xyz.supabase.co)
+ * and strips any trailing slashes, /rest/v1 paths, quotes, or dashboard URLs.
+ */
+export const sanitizeSupabaseUrl = (raw: string): string => {
+  if (!raw) return '';
+  let url = raw.trim();
+
+  // Strip single/double quotes and whitespace
+  url = url.replace(/^['"]+|['"]+$/g, '').trim();
+  if (!url) return '';
+
+  // Handle accidental pasting of dashboard URL: https://supabase.com/dashboard/project/abcdefghijk
+  const dashboardMatch = url.match(/supabase\.com\/(?:dashboard\/)?project\/([a-zA-Z0-9_-]+)/);
+  if (dashboardMatch && dashboardMatch[1]) {
+    return `https://${dashboardMatch[1]}.supabase.co`;
+  }
+
+  // Strip /rest/v1 or any subpath if user copied the API endpoint
+  if (url.includes('/rest/v1')) {
+    url = url.split('/rest/v1')[0];
+  }
+
+  // Ensure protocol
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = `https://${url}`;
+  }
+
+  try {
+    const parsed = new URL(url);
+    // Origin is protocol + // + host + port (no pathname, no trailing slash)
+    return parsed.origin;
+  } catch {
+    return url.replace(/\/+$/, '');
+  }
+};
+
+/**
+ * Sanitizes Supabase public/anon key by stripping whitespace and quotes.
+ */
+export const sanitizeSupabaseKey = (raw: string): string => {
+  if (!raw) return '';
+  return raw.replace(/^['"]+|['"]+$/g, '').replace(/\s+/g, '').trim();
+};
+
 export const getSupabaseConfig = (): SupabaseConfig => {
-  const envUrl = (((import.meta as any).env?.VITE_SUPABASE_URL as string) || '').trim();
-  const envKey = (((import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string) || '').trim();
+  const envUrl = sanitizeSupabaseUrl(((import.meta as any).env?.VITE_SUPABASE_URL as string) || '');
+  const envKey = sanitizeSupabaseKey(((import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string) || '');
 
   if (envUrl && envKey) {
     return {
@@ -27,8 +72,8 @@ export const getSupabaseConfig = (): SupabaseConfig => {
   }
 
   try {
-    const storedUrl = (localStorage.getItem(STORAGE_OVERRIDE_URL_KEY) || '').trim();
-    const storedKey = (localStorage.getItem(STORAGE_OVERRIDE_ANON_KEY) || '').trim();
+    const storedUrl = sanitizeSupabaseUrl(localStorage.getItem(STORAGE_OVERRIDE_URL_KEY) || '');
+    const storedKey = sanitizeSupabaseKey(localStorage.getItem(STORAGE_OVERRIDE_ANON_KEY) || '');
     if (storedUrl && storedKey) {
       return {
         url: storedUrl,
@@ -51,12 +96,15 @@ export const getSupabaseConfig = (): SupabaseConfig => {
 
 export const saveSupabaseConfig = (url: string, anonKey: string) => {
   try {
-    if (!url.trim() && !anonKey.trim()) {
+    const cleanUrl = sanitizeSupabaseUrl(url);
+    const cleanKey = sanitizeSupabaseKey(anonKey);
+
+    if (!cleanUrl && !cleanKey) {
       localStorage.removeItem(STORAGE_OVERRIDE_URL_KEY);
       localStorage.removeItem(STORAGE_OVERRIDE_ANON_KEY);
     } else {
-      localStorage.setItem(STORAGE_OVERRIDE_URL_KEY, url.trim());
-      localStorage.setItem(STORAGE_OVERRIDE_ANON_KEY, anonKey.trim());
+      localStorage.setItem(STORAGE_OVERRIDE_URL_KEY, cleanUrl);
+      localStorage.setItem(STORAGE_OVERRIDE_ANON_KEY, cleanKey);
     }
     clientInstance = null;
   } catch (err) {
@@ -149,33 +197,38 @@ export const fetchPriceListsFromSupabase = async (): Promise<PriceListDocument[]
   const supabase = getSupabaseClient();
   if (!supabase) return [];
 
-  const { data, error } = await supabase
-    .from('price_lists')
-    .select('*')
-    .order('updated_at', { ascending: false });
+  try {
+    const { data, error } = await supabase
+      .from('price_lists')
+      .select('*')
+      .order('updated_at', { ascending: false });
 
-  if (error) {
-    console.error('Error fetching from Supabase:', error);
-    throw new Error(error.message);
+    if (error) {
+      console.warn('Notice from Supabase query:', error.message || error);
+      return [];
+    }
+
+    if (!data || !Array.isArray(data)) return [];
+
+    return data.map((row: any) =>
+      sanitizeDoc({
+        id: row.id,
+        name: row.name || 'بدون عنوان',
+        title: row.title || '',
+        subtitle: row.subtitle || '',
+        date: row.date || '',
+        banner: row.banner || {},
+        items: row.items || [],
+        footerNote: row.footer_note || '',
+        contact: row.contact || {},
+        settings: row.settings || {},
+        updatedAt: row.updated_at || new Date().toISOString(),
+      })
+    );
+  } catch (err: any) {
+    console.warn('Network or Supabase query failed:', err?.message || err);
+    return [];
   }
-
-  if (!data || !Array.isArray(data)) return [];
-
-  return data.map((row: any) =>
-    sanitizeDoc({
-      id: row.id,
-      name: row.name || 'بدون عنوان',
-      title: row.title || '',
-      subtitle: row.subtitle || '',
-      date: row.date || '',
-      banner: row.banner || {},
-      items: row.items || [],
-      footerNote: row.footer_note || '',
-      contact: row.contact || {},
-      settings: row.settings || {},
-      updatedAt: row.updated_at || new Date().toISOString(),
-    })
-  );
 };
 
 /**
