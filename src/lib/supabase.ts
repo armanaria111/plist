@@ -198,31 +198,51 @@ export const setStoredAdminSession = (session: AdminSession | null) => {
   }
 };
 
-// Supabase SQL Schema for easy creation
-export const SUPABASE_SQL_SCHEMA = `-- جدول لیست‌های قیمت
+// Supabase SQL Schema for easy creation & repair
+export const SUPABASE_SQL_SCHEMA = `-- ۱. ایجاد یا تکمیل جدول لیست‌های قیمت
 create table if not exists public.price_lists (
   id text primary key,
-  name text not null,
-  title text,
-  subtitle text,
-  date text,
+  name text default 'لیست قیمت',
+  title text default '',
+  subtitle text default '',
+  date text default '',
   banner jsonb default '{}'::jsonb,
   items jsonb not null default '[]'::jsonb,
-  footer_note text,
+  footer_note text default '',
   contact jsonb default '{}'::jsonb,
   settings jsonb default '{}'::jsonb,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- فعال‌سازی دسترسی امنیتی RLS
-alter table public.price_lists enable row level security;
+-- ۲. اضافه کردن ستون‌های احیاناً مفقود شده از قبل
+alter table public.price_lists add column if not exists name text default 'لیست قیمت';
+alter table public.price_lists add column if not exists title text default '';
+alter table public.price_lists add column if not exists subtitle text default '';
+alter table public.price_lists add column if not exists date text default '';
+alter table public.price_lists add column if not exists banner jsonb default '{}'::jsonb;
+alter table public.price_lists add column if not exists items jsonb not null default '[]'::jsonb;
+alter table public.price_lists add column if not exists footer_note text default '';
+alter table public.price_lists add column if not exists contact jsonb default '{}'::jsonb;
+alter table public.price_lists add column if not exists settings jsonb default '{}'::jsonb;
+alter table public.price_lists add column if not exists created_at timestamp with time zone default timezone('utc'::text, now());
+alter table public.price_lists add column if not exists updated_at timestamp with time zone default timezone('utc'::text, now());
 
--- ایجاد سیاست‌های خواندن عمومی و نوشتن
-create policy "Allow all read" on public.price_lists for select using (true);
-create policy "Allow all insert" on public.price_lists for insert with check (true);
-create policy "Allow all update" on public.price_lists for update using (true);
-create policy "Allow all delete" on public.price_lists for delete using (true);
+-- ۳. اعطای دسترسی به نقش‌های کاربری
+grant all on table public.price_lists to postgres, anon, authenticated, service_role;
+
+-- ۴. فعال‌سازی دسترسی امنیتی RLS و اعمال دسترسی آزاد
+alter table public.price_lists enable row level security;
+drop policy if exists "Allow all operations for authenticated and anon" on public.price_lists;
+drop policy if exists "Allow all operations for price_lists" on public.price_lists;
+drop policy if exists "Allow all read" on public.price_lists;
+drop policy if exists "Allow all insert" on public.price_lists;
+drop policy if exists "Allow all update" on public.price_lists;
+drop policy if exists "Allow all delete" on public.price_lists;
+create policy "Allow all operations for price_lists" on public.price_lists for all using (true) with check (true);
+
+-- ۵. فرمان ویژه جهت رفرش آنی حافظه کش PostgREST در سوبابیس
+notify pgrst, 'reload schema';
 `;
 
 /**
@@ -293,9 +313,10 @@ export const savePriceListToSupabase = async (doc: PriceListDocument): Promise<v
 
   if (error) {
     console.error('Error saving to Supabase:', error);
-    if (error.message?.includes('public.price_lists') || error.message?.includes('schema cache')) {
+    if (error.message?.includes('schema cache') || error.message?.includes('price_lists')) {
       throw new Error(
-        'جدول price_lists در دیتابیس Supabase هنوز ایجاد نشده است! لطفاً دستورات SQL را از تب «تنظیمات دیتابیس» کپی کرده و در SQL Editor سوبابیس Run کنید.'
+        `خطای دیتابیس Supabase: ${error.message}\n` +
+        `برای رفع این خطا، دستورات کامل SQL موجود در تب «تنظیمات Supabase» را در بخش SQL Editor سوبابیس اجرا کنید (دستور notify pgrst, 'reload schema' کش را فوراً رفرش می‌کند).`
       );
     }
     throw new Error(error.message);

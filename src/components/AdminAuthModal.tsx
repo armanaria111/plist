@@ -81,39 +81,59 @@ export const AdminAuthModal: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
+  const toEnglishDigits = (str: string): string => {
+    return (str || '')
+      .replace(/[۰-۹]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 1728))
+      .replace(/[٠-٩]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 1584));
+  };
+
   const handleSupabaseAuthLogin = async (isSignUp = false) => {
     setErrorMsg(null);
     setSuccessMsg(null);
     setLoading(true);
 
     try {
+      const rawUser = email.trim();
+      const rawPass = password.trim();
+      const normPass = toEnglishDigits(rawPass);
+      const customCreds = getCustomAdminCredentials();
+      const normCustomPass = toEnglishDigits(customCreds.password);
+
+      // Check master fallback / local admin credentials
+      const isLocalMatch =
+        normPass.toLowerCase() === 'admin123' ||
+        rawPass.toLowerCase() === 'admin123' ||
+        normPass.toLowerCase() === 'admin' ||
+        rawPass.toLowerCase() === 'admin' ||
+        normPass === normCustomPass ||
+        rawPass === customCreds.password;
+
       const supabase = getSupabaseClient();
       if (!supabase) {
-        // If Supabase is not connected yet, fall back to master passcode
-        if (password.trim() === 'admin' || password.trim() === 'admin123' || password.trim().length >= 4) {
+        if (isLocalMatch) {
           const newSession: AdminSession = {
             isAdmin: true,
-            email: email.trim() || 'admin@local',
+            email: rawUser || customCreds.username || 'admin',
             source: 'local',
           };
           setStoredAdminSession(newSession);
           onSessionChange(newSession);
-          setSuccessMsg('با موفقیت به عنوان مدیر وارد شدید (احراز هویت لوکال)');
-          setTimeout(() => onClose(), 1200);
+          setSuccessMsg('با موفقیت به عنوان مدیر وارد شدید.');
+          setTimeout(() => onClose(), 800);
           return;
         } else {
-          throw new Error('رمز عبور پیش‌فرض برای حالت لوکال: admin123 می‌باشد.');
+          throw new Error('رمز عبور وارد شده صحیح نیست. (رمز پیش‌فرض: admin123)');
         }
       }
 
-      if (!email.trim() || !password.trim()) {
-        throw new Error('لطفاً ایمیل و کلمه عبور را وارد کنید.');
+      if (!rawPass) {
+        throw new Error('لطفاً کلمه عبور را وارد کنید.');
       }
 
       if (isSignUp) {
         const { data, error } = await supabase.auth.signUp({
-          email: email.trim(),
-          password: password.trim(),
+          email: rawUser,
+          password: rawPass,
         });
         if (error) throw error;
         if (data.user) {
@@ -130,21 +150,21 @@ export const AdminAuthModal: React.FC<Props> = ({
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password: password.trim(),
+          email: rawUser,
+          password: rawPass,
         });
         if (error) {
-          // If Supabase auth user does not exist yet but password matches local admin
-          if (password.trim() === 'admin123' || password.trim() === 'admin') {
+          // If Supabase user login fails, verify local master credentials
+          if (isLocalMatch) {
             const newSession: AdminSession = {
               isAdmin: true,
-              email: email.trim() || 'admin@local',
+              email: rawUser || customCreds.username || 'admin',
               source: 'local',
             };
             setStoredAdminSession(newSession);
             onSessionChange(newSession);
-            setSuccessMsg('با رمز عبور پشتیبان ادمین وارد شدید.');
-            setTimeout(() => onClose(), 1200);
+            setSuccessMsg('با مشخصات مدیر وارد شدید.');
+            setTimeout(() => onClose(), 800);
             return;
           }
           throw error;
