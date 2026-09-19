@@ -1,0 +1,6 @@
+{
+  "name": "Price List Image Generator",
+  "description": "ابزار طراحی و صدور لیست قیمت کالا با خروجی عکس، متصل به دیتابیس Supabase، پنل ورود ادمین و آماده استقرار در Render",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

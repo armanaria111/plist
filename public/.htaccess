@@ -1,0 +1,18 @@
+# Apache configuration for React Single Page App in subfolder
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /ss/2/
+  
+  # Ensure proper MIME types for JavaScript and CSS
+  AddType application/javascript .js .mjs
+  AddType text/css .css
+  AddType image/svg+xml .svg
+  
+  # If file exists, serve it
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+  
+  # Otherwise rewrite to index.html
+  RewriteRule ^ index.html [L]
+</IfModule>
